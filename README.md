@@ -50,6 +50,29 @@ v1 status: no auth, single global state (one model, one image, one caller), sync
 
 Details (VPN, SSH, session credentials): [`fphtr-documentations/university-server-connection.md`](https://github.com/fepeti13/fphtr-documentations).
 
+The service opens the SSH connection itself, lazily, the first time an endpoint needs it (see `ssh_client.py`) — nobody has to `ssh` in manually. It reconnects automatically if the connection drops. Configure it with environment variables:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SSH_HOST` | `172.30.240.31` | University server address, only reachable over VPN |
+| `SSH_PORT` | `2222` | Fixed |
+| `SSH_USERNAME` | `md5_s1331aa578af515ae2f53096fac6` | Fixed per account |
+| `SSH_PASSWORD` | *(none — required)* | **Changes every MLHub session.** Get it fresh from the SSH gateway panel and pass it to the container each time you spawn a new session. Never commit it. |
+| `MODELS_DIR` | `~/handwritten-text-recognition-trocr/models` | Remote directory scanned by `GET /api/v1/models` |
+
+### Reaching the server from Docker (VPN + networking)
+
+The VPN tunnel is a network-namespace construct — WireGuard brought up on the Docker **host** is invisible to a container unless the container shares that network namespace. Decision for now:
+
+- **Bring WireGuard up on the host** (same manual step as before — see the connection doc), then **run this container with host networking**:
+  ```bash
+  docker run --network host --env-file .env fphtr-recognition-server
+  ```
+  Linux-only, but simplest and keeps VPN setup exactly as already documented, with no secrets baked into the image.
+- Do **not** run WireGuard inside this same container — it would mix concerns and require baking `NET_ADMIN`/privileged capabilities into the app image permanently just to hold a VPN key.
+- If host networking stops being viable (e.g. deploying on a host you don't control, or Docker Desktop on macOS/Windows where `--network host` doesn't work), the alternative is a **VPN sidecar container** (its own `wireguard` client, `cap_add: NET_ADMIN`, `/dev/net/tun`, the private `wg0.conf` bind-mounted as a secret — never baked into an image) with this app container joining it via `network_mode: "service:vpn"` in docker-compose. Not implemented yet; revisit if/when this stops running on a single trusted dev machine.
+- Either way, spawning the MLHub session itself (browser login, picking a GPU profile) stays a manual human step — it cannot be automated, so `SSH_PASSWORD` still needs to be refreshed per session regardless of the networking approach chosen.
+
 ## Status
 
 Early stage — planning and interface contract complete, implementation not yet started. See [`fphtr-documentations`](https://github.com/fepeti13/fphtr-documentations) for the current decisions log and open questions.
